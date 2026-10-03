@@ -26,12 +26,24 @@ pub(crate) struct LinuxDispatcher {
 }
 
 const MIN_THREADS: usize = 2;
+/// The default ceiling on background workers. One per core is a pool sized for an editor's
+/// indexing load; apps without that load pay a thread each for nothing. `GPUI_WORKER_THREADS`
+/// overrides the count entirely.
+const MAX_THREADS: usize = 8;
+
+fn thread_count() -> usize {
+    let cores = std::thread::available_parallelism().map_or(MIN_THREADS, |i| i.get());
+    std::env::var("GPUI_WORKER_THREADS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| cores.min(MAX_THREADS))
+        .max(MIN_THREADS)
+}
 
 impl LinuxDispatcher {
     pub fn new(main_sender: PriorityQueueCalloopSender<RunnableVariant>) -> Self {
         let (background_sender, background_receiver) = PriorityQueueReceiver::new();
-        let thread_count =
-            std::thread::available_parallelism().map_or(MIN_THREADS, |i| i.get().max(MIN_THREADS));
+        let thread_count = thread_count();
 
         let mut background_threads = (0..thread_count)
             .map(|i| {
